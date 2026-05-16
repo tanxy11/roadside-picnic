@@ -706,9 +706,19 @@ function resizeRenderer() {
   const rect = elements.canvas.getBoundingClientRect();
   const width = Math.max(1, rect.width);
   const height = Math.max(1, rect.height);
+  const isPhone = width < 640;
+  const isTablet = width >= 640 && width < 980;
 
   renderer.setSize(width, height, false);
   camera.aspect = width / height;
+  camera.fov = isPhone ? 50 : isTablet ? 45 : 42;
+  controls.minDistance = isPhone ? 5.3 : 4.4;
+  controls.maxDistance = isPhone ? 11 : 9.5;
+
+  if (camera.position.length() < controls.minDistance) {
+    camera.position.setLength(controls.minDistance);
+  }
+
   camera.updateProjectionMatrix();
 }
 
