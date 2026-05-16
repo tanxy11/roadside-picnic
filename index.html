@@ -1,0 +1,156 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta
+      name="description"
+      content="A Three.js simulation of the rotating-globe bullet-hole curve inspired by the Pilman Radiant from Roadside Picnic."
+    />
+    <title>Pilman Radiant Simulator</title>
+  </head>
+  <body>
+    <div id="app">
+      <main class="stage" aria-label="Pilman Radiant globe simulator">
+        <canvas id="scene" aria-label="Rotating globe simulation"></canvas>
+
+        <div class="brand-panel">
+          <p class="kicker">Roadside Picnic Study</p>
+          <h1>Pilman Radiant</h1>
+          <div class="readout-grid">
+            <div>
+              <span>Shots</span>
+              <strong id="shot-count">0</strong>
+            </div>
+            <div>
+              <span>Curve Error</span>
+              <strong id="curve-error">0.00 deg</strong>
+            </div>
+            <div>
+              <span>Speed</span>
+              <strong id="speed-readout">42 deg/s</strong>
+            </div>
+          </div>
+        </div>
+
+        <div class="fire-strip" role="toolbar" aria-label="Firing controls">
+          <button id="fire-button" class="primary-button" type="button">
+            <i data-lucide="crosshair"></i>
+            <span>Fire</span>
+          </button>
+          <button id="auto-button" class="icon-button utility-button" type="button" aria-label="Start automatic firing" title="Auto fire">
+            <i data-lucide="timer"></i>
+            <span class="button-label">Auto</span>
+          </button>
+          <button id="pause-button" class="icon-button utility-button" type="button" aria-label="Pause globe spin" title="Pause globe spin">
+            <i data-lucide="pause"></i>
+            <span class="button-label">Spin</span>
+          </button>
+          <button id="reset-button" class="icon-button utility-button" type="button" aria-label="Reset shots" title="Reset shots">
+            <i data-lucide="rotate-ccw"></i>
+            <span class="button-label">Reset</span>
+          </button>
+          <button id="export-button" class="icon-button utility-button" type="button" aria-label="Export shot data" title="Export shot data">
+            <i data-lucide="download"></i>
+            <span class="button-label">Export</span>
+          </button>
+        </div>
+      </main>
+
+      <aside class="control-panel" aria-label="Simulation controls">
+        <section class="control-section compact">
+          <div class="section-heading">
+            <i data-lucide="target"></i>
+            <h2>Mode</h2>
+          </div>
+          <div class="segmented-control" role="group" aria-label="Firing mode">
+            <button class="mode-button is-active" data-mode="pilman" type="button">Pilman</button>
+            <button class="mode-button" data-mode="free" type="button">Free Aim</button>
+          </div>
+        </section>
+
+        <section class="control-section">
+          <div class="section-heading">
+            <i data-lucide="gauge"></i>
+            <h2>Motion</h2>
+          </div>
+
+          <label class="slider-row">
+            <span>Angular Speed</span>
+            <output id="speed-output">42 deg/s</output>
+            <input id="speed-input" type="range" min="-180" max="180" step="1" value="42" />
+          </label>
+
+          <label class="slider-row">
+            <span>Axis Tilt</span>
+            <output id="tilt-output">24 deg</output>
+            <input id="tilt-input" type="range" min="0" max="90" step="1" value="24" />
+          </label>
+
+          <label class="slider-row">
+            <span>Axis Azimuth</span>
+            <output id="azimuth-output">35 deg</output>
+            <input id="azimuth-input" type="range" min="0" max="360" step="1" value="35" />
+          </label>
+        </section>
+
+        <section class="control-section">
+          <div class="section-heading">
+            <i data-lucide="circle-dot"></i>
+            <h2>Radiant</h2>
+          </div>
+
+          <label class="slider-row">
+            <span>Yaw</span>
+            <output id="yaw-output">-26 deg</output>
+            <input id="yaw-input" type="range" min="-70" max="70" step="1" value="-26" />
+          </label>
+
+          <label class="slider-row">
+            <span>Pitch</span>
+            <output id="pitch-output">12 deg</output>
+            <input id="pitch-input" type="range" min="-50" max="50" step="1" value="12" />
+          </label>
+
+          <label class="slider-row">
+            <span>Auto Interval</span>
+            <output id="interval-output">0.75 s</output>
+            <input id="interval-input" type="range" min="0.2" max="2.5" step="0.05" value="0.75" />
+          </label>
+        </section>
+
+        <section class="control-section compact">
+          <div class="section-heading">
+            <i data-lucide="route"></i>
+            <h2>Display</h2>
+          </div>
+
+          <label class="toggle-row">
+            <span>Fitted Curve</span>
+            <input id="prediction-toggle" type="checkbox" checked />
+          </label>
+
+          <label class="toggle-row">
+            <span>Shot Trace</span>
+            <input id="trace-toggle" type="checkbox" checked />
+          </label>
+
+          <label class="toggle-row">
+            <span>Globe Grid</span>
+            <input id="grid-toggle" type="checkbox" checked />
+          </label>
+        </section>
+
+        <section class="control-section shot-log-section">
+          <div class="section-heading">
+            <i data-lucide="activity"></i>
+            <h2>Impacts</h2>
+          </div>
+          <ol id="shot-log" class="shot-log" aria-live="polite"></ol>
+        </section>
+      </aside>
+    </div>
+
+    <script type="module" src="/src/main.js"></script>
+  </body>
+</html>
