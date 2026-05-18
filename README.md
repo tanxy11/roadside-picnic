@@ -6,6 +6,8 @@ A browser-based Three.js simulation of the rotating-globe bullet-hole curve insp
 
 The globe rotates around a configurable spin axis. In **Pilman** mode, each shot is fired at a fixed world-space point while the globe spins underneath it. The impact locations are stored in globe-local coordinates, so the holes stay attached to the surface and reveal a small-circle curve.
 
+In **Through** mode, the fixed shot line penetrates the globe. Each shot records both the entry point and the antipodal exit point, then draws a glowing tunnel through the transparent sphere so the internal trajectory remains visible as the globe spins.
+
 In **Free Aim** mode, clicking the visible globe places impacts wherever the pointer ray hits the surface.
 
 ## Local Testing
@@ -32,12 +34,13 @@ npm run preview
 
 - **Fire** adds a shot.
 - **Pause Spin** freezes the globe so you can orbit the camera and inspect the curve. Press `P` for the same toggle.
-- **Pilman / Free Aim** switches between the fixed radiant and pointer-based firing.
+- **Pilman / Through / Free Aim** switches between surface impacts, penetrating shots, and pointer-based firing.
 - **Angular Speed** controls globe rotation in degrees per second.
 - **Axis Tilt / Axis Azimuth** control the spin axis.
 - **Yaw / Pitch** move the fixed radiant in Pilman mode.
 - **Fitted Curve** shows the small-circle curve implied by the impacts.
 - **Shot Trace** connects the impacts in firing order.
+- **Transparent Globe** makes the sphere translucent for inspecting through-shot tunnels and exit traces.
 - **Export** downloads shot data as JSON.
 
 ## GitHub Pages

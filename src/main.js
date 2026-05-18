@@ -47,6 +47,7 @@ const state = {
   showPrediction: true,
   showTrace: true,
   showGrid: true,
+  transparentGlobe: false,
   shots: [],
   nextShotId: 1,
   lastAutoShotAt: 0,
@@ -78,6 +79,7 @@ const elements = {
   predictionToggle: document.querySelector("#prediction-toggle"),
   traceToggle: document.querySelector("#trace-toggle"),
   gridToggle: document.querySelector("#grid-toggle"),
+  transparencyToggle: document.querySelector("#transparency-toggle"),
   shotLog: document.querySelector("#shot-log"),
 };
 
@@ -183,6 +185,7 @@ bindControls();
 resizeRenderer();
 updateAllReadouts();
 updateAxisVisual();
+updateGlobeTransparency();
 updateRadiantVisual();
 updateCurves();
 animate();
@@ -214,8 +217,16 @@ function bindControls() {
     button.addEventListener("click", () => {
       state.mode = button.dataset.mode;
       elements.modeButtons.forEach((item) => item.classList.toggle("is-active", item === button));
+
+      if (state.mode === "through") {
+        state.transparentGlobe = true;
+        elements.transparencyToggle.checked = true;
+        updateGlobeTransparency();
+      }
+
       updateHoverMarker();
       updateRadiantVisual();
+      updateCurves();
     });
   });
 
@@ -252,6 +263,10 @@ function bindControls() {
   elements.gridToggle.addEventListener("change", () => {
     state.showGrid = elements.gridToggle.checked;
     graticule.visible = state.showGrid;
+  });
+  elements.transparencyToggle.addEventListener("change", () => {
+    state.transparentGlobe = elements.transparencyToggle.checked;
+    updateGlobeTransparency();
   });
 
   let pointerDown = null;
@@ -369,6 +384,13 @@ function fireCurrentMode() {
   const worldPoint = getRadiantWorldPoint();
   const localPoint = worldSurfaceToLocal(worldPoint, orientation);
 
+  if (state.mode === "through") {
+    const exitLocalPoint = worldSurfaceToLocal(worldPoint.clone().negate(), orientation);
+    addThroughShot(localPoint, exitLocalPoint);
+    pulseFlash(worldPoint, worldPoint.clone().negate());
+    return;
+  }
+
   addShot(localPoint, "pilman");
   pulseFlash(worldPoint);
 }
@@ -395,9 +417,38 @@ function addShot(localVector, mode) {
   updateAllReadouts();
 }
 
+function addThroughShot(entryLocalVector, exitLocalVector) {
+  const entryLocal = entryLocalVector.clone().normalize();
+  const exitLocal = exitLocalVector.clone().normalize();
+  const marker = createThroughMarker(entryLocal, exitLocal);
+  const shot = {
+    id: state.nextShotId,
+    mode: "through",
+    local: entryLocal,
+    exitLocal,
+    marker,
+    elapsed: state.elapsed,
+    angularSpeedRad: getAngularSpeedRad(),
+  };
+
+  state.nextShotId += 1;
+  state.shots.push(shot);
+  markerMeshes.set(shot.id, marker);
+  globeGroup.add(marker);
+
+  updateCurves();
+  updateShotLog();
+  updateAllReadouts();
+}
+
 function createImpactMarker(local, mode) {
   const group = new THREE.Group();
-  const color = mode === "pilman" ? 0xffcf5f : 0x9bf7d3;
+  const color = {
+    pilman: 0xffcf5f,
+    free: 0x9bf7d3,
+    "through-entry": 0xffcf5f,
+    "through-exit": 0xff7c5c,
+  }[mode] ?? 0x9bf7d3;
   const normal = local.clone().normalize();
   const basePosition = normal.clone().multiplyScalar(MARKER_RADIUS);
 
@@ -419,6 +470,41 @@ function createImpactMarker(local, mode) {
   group.add(scorch, ring, halo);
 
   return group;
+}
+
+function createThroughMarker(entryLocal, exitLocal) {
+  const group = new THREE.Group();
+  const tunnel = createTunnelMesh(
+    entryLocal.clone().multiplyScalar(RADIUS * 0.985),
+    exitLocal.clone().multiplyScalar(RADIUS * 0.985),
+  );
+  const entryMarker = createImpactMarker(entryLocal, "through-entry");
+  const exitMarker = createImpactMarker(exitLocal, "through-exit");
+
+  group.add(tunnel, entryMarker, exitMarker);
+  return group;
+}
+
+function createTunnelMesh(start, end) {
+  const direction = end.clone().sub(start);
+  const length = direction.length();
+  const midpoint = start.clone().add(end).multiplyScalar(0.5);
+  const material = new THREE.MeshBasicMaterial({
+    color: 0xffcf5f,
+    transparent: true,
+    opacity: 0.62,
+    blending: THREE.AdditiveBlending,
+    depthWrite: false,
+    depthTest: false,
+  });
+  const tunnel = new THREE.Mesh(
+    new THREE.CylinderGeometry(0.013, 0.013, length, 16, 1, true),
+    material,
+  );
+
+  tunnel.position.copy(midpoint);
+  tunnel.quaternion.setFromUnitVectors(new THREE.Vector3(0, 1, 0), direction.normalize());
+  return tunnel;
 }
 
 function createSurfaceRing(color, radius, tube, opacity) {
@@ -443,6 +529,7 @@ function createRadiantGroup() {
   });
   const beam = new THREE.Line(new THREE.BufferGeometry(), beamMaterial);
   const ring = createSurfaceRing(0xffcf5f, 0.15, 0.006, 0.78);
+  const exitRing = createSurfaceRing(0xff7c5c, 0.15, 0.006, 0.78);
   const core = new THREE.Mesh(
     new THREE.CircleGeometry(0.035, 28),
     new THREE.MeshBasicMaterial({
@@ -453,11 +540,23 @@ function createRadiantGroup() {
       depthWrite: false,
     }),
   );
+  const exitCore = new THREE.Mesh(
+    new THREE.CircleGeometry(0.035, 28),
+    new THREE.MeshBasicMaterial({
+      color: 0xffb39f,
+      transparent: true,
+      opacity: 0.94,
+      side: THREE.DoubleSide,
+      depthWrite: false,
+    }),
+  );
 
   group.userData.beam = beam;
   group.userData.ring = ring;
+  group.userData.exitRing = exitRing;
   group.userData.core = core;
-  group.add(beam, ring, core);
+  group.userData.exitCore = exitCore;
+  group.add(beam, ring, core, exitRing, exitCore);
 
   return group;
 }
@@ -475,10 +574,12 @@ function createShotFlash() {
   return flash;
 }
 
-function pulseFlash(worldPoint) {
+function pulseFlash(worldPoint, exitWorldPoint = null) {
   const normal = worldPoint.clone().normalize();
   const source = normal.clone().multiplyScalar(RADIUS * 3.35);
-  const target = normal.clone().multiplyScalar(RADIUS * 1.02);
+  const target = exitWorldPoint
+    ? exitWorldPoint.clone().normalize().multiplyScalar(RADIUS * 1.34)
+    : normal.clone().multiplyScalar(RADIUS * 1.02);
 
   shotFlash.geometry.dispose();
   shotFlash.geometry = new THREE.BufferGeometry().setFromPoints([source, target]);
@@ -520,18 +621,33 @@ function updateHoverMarker() {
 function updateRadiantVisual() {
   const worldPoint = getRadiantWorldPoint();
   const source = worldPoint.clone().multiplyScalar(RADIUS * 3.4);
-  const target = worldPoint.clone().multiplyScalar(RADIUS * 1.02);
+  const entryTarget = worldPoint.clone().multiplyScalar(RADIUS * 1.02);
+  const exitWorldPoint = worldPoint.clone().negate();
+  const exitTarget = exitWorldPoint.clone().multiplyScalar(RADIUS * 1.02);
+  const beamTarget = state.mode === "through"
+    ? exitWorldPoint.clone().multiplyScalar(RADIUS * 1.28)
+    : entryTarget;
   const ring = radiantGroup.userData.ring;
+  const exitRing = radiantGroup.userData.exitRing;
   const core = radiantGroup.userData.core;
-  const visible = state.mode === "pilman";
+  const exitCore = radiantGroup.userData.exitCore;
+  const visible = state.mode === "pilman" || state.mode === "through";
+  const showExitPreview = state.mode === "through";
 
   radiantGroup.visible = visible;
   radiantGroup.userData.beam.geometry.dispose();
-  radiantGroup.userData.beam.geometry = new THREE.BufferGeometry().setFromPoints([source, target]);
-  ring.position.copy(target);
+  radiantGroup.userData.beam.geometry = new THREE.BufferGeometry().setFromPoints([source, beamTarget]);
+  ring.position.copy(entryTarget);
   ring.quaternion.setFromUnitVectors(new THREE.Vector3(0, 0, 1), worldPoint);
-  core.position.copy(target.clone().multiplyScalar(1.002));
+  core.position.copy(entryTarget.clone().multiplyScalar(1.002));
   core.quaternion.copy(ring.quaternion);
+
+  exitRing.visible = showExitPreview;
+  exitCore.visible = showExitPreview;
+  exitRing.position.copy(exitTarget);
+  exitRing.quaternion.setFromUnitVectors(new THREE.Vector3(0, 0, 1), exitWorldPoint);
+  exitCore.position.copy(exitTarget.clone().multiplyScalar(1.002));
+  exitCore.quaternion.copy(exitRing.quaternion);
 }
 
 function updateAxisVisual() {
@@ -549,6 +665,8 @@ function updateCurves() {
   clearCurveGroup();
 
   const localShots = state.shots.map((shot) => shot.local);
+  const throughShots = state.shots.filter((shot) => shot.exitLocal);
+  const exitLocalShots = throughShots.map((shot) => shot.exitLocal);
   const axis = getSpinAxis();
 
   if (state.showPrediction) {
@@ -566,6 +684,23 @@ function updateCurves() {
     );
 
     curveGroup.add(prediction);
+
+    if (exitLocalShots.length > 0) {
+      const exitConstant = fittedSmallCircleConstant(axis, exitLocalShots, -fallback);
+      const exitPredictionPoints = smallCirclePoints(axis, exitConstant, 300)
+        .map((point) => point.multiplyScalar(CURVE_RADIUS * 1.008));
+      const exitPrediction = new THREE.Line(
+        new THREE.BufferGeometry().setFromPoints(exitPredictionPoints),
+        new THREE.LineBasicMaterial({
+          color: 0xff7c5c,
+          transparent: true,
+          opacity: 0.9,
+          depthWrite: false,
+        }),
+      );
+
+      curveGroup.add(exitPrediction);
+    }
   }
 
   if (state.showTrace && localShots.length >= 2) {
@@ -582,6 +717,22 @@ function updateCurves() {
 
     curveGroup.add(trace);
   }
+
+  if (state.showTrace && exitLocalShots.length >= 2) {
+    const exitTracePoints = sphericalTracePoints(exitLocalShots)
+      .map((point) => point.multiplyScalar(CURVE_RADIUS * 1.012));
+    const exitTrace = new THREE.Line(
+      new THREE.BufferGeometry().setFromPoints(exitTracePoints),
+      new THREE.LineBasicMaterial({
+        color: 0xff7c5c,
+        transparent: true,
+        opacity: 0.96,
+        depthWrite: false,
+      }),
+    );
+
+    curveGroup.add(exitTrace);
+  }
 }
 
 function clearCurveGroup() {
@@ -597,6 +748,14 @@ function updateAllReadouts() {
   elements.shotCount.textContent = String(state.shots.length);
   elements.speedReadout.textContent = state.paused ? "Paused" : `${Math.round(state.angularSpeedDeg)} deg/s`;
   elements.curveError.textContent = `${curveErrorDegrees(getSpinAxis(), localShots).toFixed(2)} deg`;
+}
+
+function updateGlobeTransparency() {
+  globeMesh.material.transparent = state.transparentGlobe;
+  globeMesh.material.opacity = state.transparentGlobe ? 0.38 : 1;
+  globeMesh.material.depthWrite = !state.transparentGlobe;
+  globeMesh.material.needsUpdate = true;
+  nightGlow.material.opacity = state.transparentGlobe ? 0.14 : 0.07;
 }
 
 function toggleSpinPause() {
@@ -632,13 +791,27 @@ function updateShotLog() {
 
   for (const shot of latest) {
     const { lat, lon } = latLonFromVector(shot.local);
+    const modeLabel = shot.mode === "through" ? "T" : shot.mode === "pilman" ? "P" : "F";
     const item = document.createElement("li");
-    item.innerHTML = `
-      <span class="shot-index">#${shot.id}</span>
-      <span class="shot-mode">${shot.mode === "pilman" ? "P" : "F"}</span>
-      <span>${lat.toFixed(1)} lat</span>
-      <span>${lon.toFixed(1)} lon</span>
-    `;
+
+    if (shot.exitLocal) {
+      const exit = latLonFromVector(shot.exitLocal);
+      item.classList.add("is-through-shot");
+      item.innerHTML = `
+        <span class="shot-index">#${shot.id}</span>
+        <span class="shot-mode">${modeLabel}</span>
+        <span>In ${lat.toFixed(1)} / ${lon.toFixed(1)}</span>
+        <span>Out ${exit.lat.toFixed(1)} / ${exit.lon.toFixed(1)}</span>
+      `;
+    } else {
+      item.innerHTML = `
+        <span class="shot-index">#${shot.id}</span>
+        <span class="shot-mode">${modeLabel}</span>
+        <span>${lat.toFixed(1)} lat</span>
+        <span>${lon.toFixed(1)} lon</span>
+      `;
+    }
+
     elements.shotLog.append(item);
   }
 }
@@ -685,12 +858,25 @@ function exportShots() {
       pitch: state.radiantPitch,
     },
     curveErrorDegrees: Number(curveErrorDegrees(getSpinAxis(), state.shots.map((shot) => shot.local)).toFixed(4)),
-    shots: state.shots.map((shot) => serializeShot(
-      shot.local,
-      shot.mode,
-      shot.elapsed,
-      shot.angularSpeedRad,
-    )),
+    shots: state.shots.map((shot) => {
+      const serialized = serializeShot(
+        shot.local,
+        shot.mode,
+        shot.elapsed,
+        shot.angularSpeedRad,
+      );
+
+      if (shot.exitLocal) {
+        const exit = latLonFromVector(shot.exitLocal);
+        serialized.exit = {
+          local: shot.exitLocal.toArray().map((value) => Number(value.toFixed(6))),
+          latitude: Number(exit.lat.toFixed(3)),
+          longitude: Number(exit.lon.toFixed(3)),
+        };
+      }
+
+      return serialized;
+    }),
   };
   const blob = new Blob([JSON.stringify(payload, null, 2)], { type: "application/json" });
   const url = URL.createObjectURL(blob);
