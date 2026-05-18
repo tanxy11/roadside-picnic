@@ -40,6 +40,7 @@ const state = {
   axisAzimuth: 35,
   radiantYaw: -26,
   radiantPitch: 12,
+  bulletTransitTime: 0.4,
   autoInterval: 0.75,
   autoFire: false,
   paused: false,
@@ -74,6 +75,8 @@ const elements = {
   yawOutput: document.querySelector("#yaw-output"),
   pitchInput: document.querySelector("#pitch-input"),
   pitchOutput: document.querySelector("#pitch-output"),
+  transitInput: document.querySelector("#transit-input"),
+  transitOutput: document.querySelector("#transit-output"),
   intervalInput: document.querySelector("#interval-input"),
   intervalOutput: document.querySelector("#interval-output"),
   predictionToggle: document.querySelector("#prediction-toggle"),
@@ -250,6 +253,9 @@ function bindControls() {
     updateRadiantVisual();
     updateCurves();
   });
+  bindRange(elements.transitInput, elements.transitOutput, "bulletTransitTime", "s", () => {
+    updateRadiantVisual();
+  });
   bindRange(elements.intervalInput, elements.intervalOutput, "autoInterval", "s");
 
   elements.predictionToggle.addEventListener("change", () => {
@@ -385,9 +391,17 @@ function fireCurrentMode() {
   const localPoint = worldSurfaceToLocal(worldPoint, orientation);
 
   if (state.mode === "through") {
-    const exitLocalPoint = worldSurfaceToLocal(worldPoint.clone().negate(), orientation);
-    addThroughShot(localPoint, exitLocalPoint);
-    pulseFlash(worldPoint, worldPoint.clone().negate());
+    const exitWorldPoint = worldPoint.clone().negate();
+    const pathPoints = createThroughLocalPath(
+      worldPoint,
+      exitWorldPoint,
+      state.elapsed,
+      state.bulletTransitTime,
+    );
+    const exitLocalPoint = pathPoints[pathPoints.length - 1].clone().normalize();
+
+    addThroughShot(localPoint, exitLocalPoint, pathPoints);
+    pulseFlash(worldPoint, exitWorldPoint);
     return;
   }
 
@@ -417,16 +431,17 @@ function addShot(localVector, mode) {
   updateAllReadouts();
 }
 
-function addThroughShot(entryLocalVector, exitLocalVector) {
+function addThroughShot(entryLocalVector, exitLocalVector, pathPoints) {
   const entryLocal = entryLocalVector.clone().normalize();
   const exitLocal = exitLocalVector.clone().normalize();
-  const marker = createThroughMarker(entryLocal, exitLocal);
+  const marker = createThroughMarker(entryLocal, exitLocal, pathPoints);
   const shot = {
     id: state.nextShotId,
     mode: "through",
     local: entryLocal,
     exitLocal,
     marker,
+    transitTime: state.bulletTransitTime,
     elapsed: state.elapsed,
     angularSpeedRad: getAngularSpeedRad(),
   };
@@ -439,6 +454,27 @@ function addThroughShot(entryLocalVector, exitLocalVector) {
   updateCurves();
   updateShotLog();
   updateAllReadouts();
+}
+
+function createThroughLocalPath(entryWorldPoint, exitWorldPoint, startElapsed, transitTime) {
+  const axis = getSpinAxis();
+  const angularSpeed = getAngularSpeedRad();
+  const samples = 56;
+  const points = [];
+
+  for (let index = 0; index <= samples; index += 1) {
+    const progress = index / samples;
+    const worldPosition = entryWorldPoint
+      .clone()
+      .multiplyScalar(RADIUS * (1 - progress))
+      .add(exitWorldPoint.clone().multiplyScalar(RADIUS * progress));
+    const orientation = orientationAt(axis, angularSpeed, startElapsed + transitTime * progress);
+    const localPosition = worldPosition.applyQuaternion(orientation.clone().invert());
+
+    points.push(localPosition);
+  }
+
+  return points;
 }
 
 function createImpactMarker(local, mode) {
@@ -472,12 +508,9 @@ function createImpactMarker(local, mode) {
   return group;
 }
 
-function createThroughMarker(entryLocal, exitLocal) {
+function createThroughMarker(entryLocal, exitLocal, pathPoints) {
   const group = new THREE.Group();
-  const tunnel = createTunnelMesh(
-    entryLocal.clone().multiplyScalar(RADIUS * 0.985),
-    exitLocal.clone().multiplyScalar(RADIUS * 0.985),
-  );
+  const tunnel = createTunnelMesh(pathPoints);
   const entryMarker = createImpactMarker(entryLocal, "through-entry");
   const exitMarker = createImpactMarker(exitLocal, "through-exit");
 
@@ -485,10 +518,7 @@ function createThroughMarker(entryLocal, exitLocal) {
   return group;
 }
 
-function createTunnelMesh(start, end) {
-  const direction = end.clone().sub(start);
-  const length = direction.length();
-  const midpoint = start.clone().add(end).multiplyScalar(0.5);
+function createTunnelMesh(pathPoints) {
   const material = new THREE.MeshBasicMaterial({
     color: 0xffcf5f,
     transparent: true,
@@ -497,13 +527,12 @@ function createTunnelMesh(start, end) {
     depthWrite: false,
     depthTest: false,
   });
+  const curve = new THREE.CatmullRomCurve3(pathPoints);
   const tunnel = new THREE.Mesh(
-    new THREE.CylinderGeometry(0.013, 0.013, length, 16, 1, true),
+    new THREE.TubeGeometry(curve, 72, 0.014, 12, false),
     material,
   );
 
-  tunnel.position.copy(midpoint);
-  tunnel.quaternion.setFromUnitVectors(new THREE.Vector3(0, 1, 0), direction.normalize());
   return tunnel;
 }
 
@@ -857,6 +886,7 @@ function exportShots() {
       yaw: state.radiantYaw,
       pitch: state.radiantPitch,
     },
+    bulletTransitTimeSeconds: state.bulletTransitTime,
     curveErrorDegrees: Number(curveErrorDegrees(getSpinAxis(), state.shots.map((shot) => shot.local)).toFixed(4)),
     shots: state.shots.map((shot) => {
       const serialized = serializeShot(
@@ -868,6 +898,7 @@ function exportShots() {
 
       if (shot.exitLocal) {
         const exit = latLonFromVector(shot.exitLocal);
+        serialized.transitTimeSeconds = Number(shot.transitTime.toFixed(3));
         serialized.exit = {
           local: shot.exitLocal.toArray().map((value) => Number(value.toFixed(6))),
           latitude: Number(exit.lat.toFixed(3)),
